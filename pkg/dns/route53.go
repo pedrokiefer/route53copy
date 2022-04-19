@@ -2,9 +2,11 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -14,6 +16,14 @@ import (
 
 type RouteCopy struct {
 	cli *route53.Client
+}
+
+type HostedZoneNotFound struct {
+	Zone string
+}
+
+func (e *HostedZoneNotFound) Error() string {
+	return fmt.Sprintf("hosted zone not found: %s", e.Zone)
 }
 
 func NewRouteCopy(ctx context.Context, profile string) *RouteCopy {
@@ -40,8 +50,29 @@ func (r *RouteCopy) GetHostedZone(ctx context.Context, domain string) (rtypes.Ho
 		return rtypes.HostedZone{}, err
 	}
 
+	fmt.Printf("Found %d hosted zones, trun %+v\n", len(resp.HostedZones), resp.IsTruncated)
+
 	zone := resp.HostedZones[0]
+	if *zone.Name != normalizeDomain(domain) {
+		return rtypes.HostedZone{}, &HostedZoneNotFound{Zone: domain}
+	}
 	return zone, nil
+}
+
+func (r *RouteCopy) CreateZone(ctx context.Context, domain string) (rtypes.HostedZone, error) {
+	params := &route53.CreateHostedZoneInput{
+		Name:            aws.String(normalizeDomain(domain)),
+		CallerReference: aws.String(fmt.Sprintf("%s-%d", domain, time.Now().Unix())),
+		HostedZoneConfig: &rtypes.HostedZoneConfig{
+			Comment:     aws.String("Created by route53copy"),
+			PrivateZone: false,
+		},
+	}
+	resp, err := r.cli.CreateHostedZone(ctx, params)
+	if err != nil {
+		return rtypes.HostedZone{}, err
+	}
+	return *resp.HostedZone, nil
 }
 
 func (r *RouteCopy) GetResourceRecords(ctx context.Context, domain string) ([]rtypes.ResourceRecordSet, error) {
@@ -74,10 +105,23 @@ func (r *RouteCopy) CreateChanges(domain string, recordSets []rtypes.ResourceRec
 		if (recordSet.Type == rtypes.RRTypeNs || recordSet.Type == rtypes.RRTypeSoa) && *recordSet.Name == domain {
 			continue
 		}
-		fmt.Printf("Change: %s %s %d\n", *recordSet.Name, string(recordSet.Type), *recordSet.TTL)
 		change := rtypes.Change{
-			Action:            rtypes.ChangeActionUpsert,
-			ResourceRecordSet: &recordSet,
+			Action: rtypes.ChangeActionUpsert,
+			ResourceRecordSet: &rtypes.ResourceRecordSet{
+				Name:                    recordSet.Name,
+				Type:                    recordSet.Type,
+				AliasTarget:             recordSet.AliasTarget,
+				Failover:                recordSet.Failover,
+				GeoLocation:             recordSet.GeoLocation,
+				HealthCheckId:           recordSet.HealthCheckId,
+				MultiValueAnswer:        recordSet.MultiValueAnswer,
+				Region:                  recordSet.Region,
+				ResourceRecords:         recordSet.ResourceRecords,
+				SetIdentifier:           recordSet.SetIdentifier,
+				TTL:                     recordSet.TTL,
+				TrafficPolicyInstanceId: recordSet.TrafficPolicyInstanceId,
+				Weight:                  recordSet.Weight,
+			},
 		}
 		changes = append(changes, change)
 	}
@@ -94,9 +138,19 @@ func normalizeDomain(domain string) string {
 }
 
 func (r *RouteCopy) UpdateRecords(ctx context.Context, sourceProfile, domain string, changes []rtypes.Change) (*rtypes.ChangeInfo, error) {
-	zone, err := r.GetHostedZone(ctx, domain)
+	var zone rtypes.HostedZone
+	var err error
+	zone, err = r.GetHostedZone(ctx, domain)
 	if err != nil {
-		return nil, err
+		var e *HostedZoneNotFound
+		if errors.As(err, &e) {
+			zone, err = r.CreateZone(ctx, domain)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	params := &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: zone.Id,
