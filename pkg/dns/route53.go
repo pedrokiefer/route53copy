@@ -48,11 +48,18 @@ func (r *RouteCopy) GetResourceRecords(ctx context.Context, domain string) ([]rt
 	params := &route53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(*zone.Id),
 	}
-	resp, err := r.cli.ListResourceRecordSets(ctx, params)
-	if err != nil {
-		return nil, err
+	paginator := NewListResourceRecordSetsPaginator(r.cli, params)
+
+	records := []rtypes.ResourceRecordSet{}
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return records, err
+		}
+		records = append(records, page.ResourceRecordSets...)
 	}
-	return resp.ResourceRecordSets, nil
+
+	return records, nil
 }
 
 func (r *RouteCopy) CreateChanges(domain string, recordSets []rtypes.ResourceRecordSet) []rtypes.Change {
