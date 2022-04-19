@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-ORG_PATH="github.com/andersjanmyr"
+ORG_PATH="github.com/pedrokiefer"
 REPO_PATH="${ORG_PATH}/route53copy"
 
 export GOPATH=${PWD}/gopath
