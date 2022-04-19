@@ -2,6 +2,8 @@ package dns
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +17,9 @@ type RouteCopy struct {
 }
 
 func NewRouteCopy(ctx context.Context, profile string) *RouteCopy {
+	if r := os.Getenv("AWS_REGION"); r == "" {
+		os.Setenv("AWS_REGION", "us-east-1")
+	}
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithSharedConfigProfile(profile))
 	if err != nil {
@@ -69,6 +74,7 @@ func (r *RouteCopy) CreateChanges(domain string, recordSets []rtypes.ResourceRec
 		if (recordSet.Type == rtypes.RRTypeNs || recordSet.Type == rtypes.RRTypeSoa) && *recordSet.Name == domain {
 			continue
 		}
+		fmt.Printf("Change: %s %s %d\n", *recordSet.Name, string(recordSet.Type), *recordSet.TTL)
 		change := rtypes.Change{
 			Action:            rtypes.ChangeActionUpsert,
 			ResourceRecordSet: &recordSet,
@@ -100,5 +106,8 @@ func (r *RouteCopy) UpdateRecords(ctx context.Context, sourceProfile, domain str
 		},
 	}
 	resp, err := r.cli.ChangeResourceRecordSets(ctx, params)
+	if err != nil {
+		return nil, err
+	}
 	return resp.ChangeInfo, nil
 }
