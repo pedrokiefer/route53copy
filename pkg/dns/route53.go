@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -12,10 +13,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	rtypes "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/aws/aws-sdk-go-v2/service/route53domains"
+	rdtypes "github.com/aws/aws-sdk-go-v2/service/route53domains/types"
 )
 
 type RouteCopy struct {
-	cli *route53.Client
+	cli     *route53.Client
+	domains *route53domains.Client
 }
 
 type HostedZoneNotFound struct {
@@ -36,7 +40,8 @@ func NewRouteCopy(ctx context.Context, profile string) *RouteCopy {
 		panic(err)
 	}
 	return &RouteCopy{
-		cli: route53.NewFromConfig(cfg),
+		cli:     route53.NewFromConfig(cfg),
+		domains: route53domains.NewFromConfig(cfg),
 	}
 }
 
@@ -49,8 +54,6 @@ func (r *RouteCopy) GetHostedZone(ctx context.Context, domain string) (rtypes.Ho
 	if err != nil {
 		return rtypes.HostedZone{}, err
 	}
-
-	fmt.Printf("Found %d hosted zones, trun %+v\n", len(resp.HostedZones), resp.IsTruncated)
 
 	zone := resp.HostedZones[0]
 	if *zone.Name != normalizeDomain(domain) {
@@ -72,17 +75,56 @@ func (r *RouteCopy) CreateZone(ctx context.Context, domain string) (rtypes.Hoste
 	if err != nil {
 		return rtypes.HostedZone{}, err
 	}
+
+	if resp.ChangeInfo.Status != rtypes.ChangeStatusInsync {
+		start := time.Now()
+		err := r.WaitForChange(ctx, aws.ToString(resp.ChangeInfo.Id), 1*time.Minute)
+		if err != nil {
+			return *resp.HostedZone, fmt.Errorf("error waiting for change to be in-sync: %s", err)
+		}
+		log.Printf("Waited %s for zone '%s' to be in-sync", time.Since(start), domain)
+
+		zone, err := r.cli.GetHostedZone(ctx, &route53.GetHostedZoneInput{
+			Id: resp.HostedZone.Id,
+		})
+		if err != nil {
+			return *resp.HostedZone, fmt.Errorf("error getting zone after change: %s", err)
+		}
+		return *zone.HostedZone, nil
+	}
+
 	return *resp.HostedZone, nil
 }
 
-func (r *RouteCopy) GetResourceRecords(ctx context.Context, domain string) ([]rtypes.ResourceRecordSet, error) {
-	zone, err := r.GetHostedZone(ctx, domain)
-	if err != nil {
-		return nil, err
-	}
+func (r *RouteCopy) WaitForChange(ctx context.Context, changeId string, maxWait time.Duration) error {
+	waiter := route53.NewResourceRecordSetsChangedWaiter(r.cli)
+	return waiter.Wait(ctx, &route53.GetChangeInput{
+		Id: aws.String(changeId),
+	}, maxWait)
+}
 
+func (r *RouteCopy) GetOrCreateZone(ctx context.Context, domain string) (rtypes.HostedZone, error) {
+	var zone rtypes.HostedZone
+	var err error
+	zone, err = r.GetHostedZone(ctx, domain)
+	if err != nil {
+		var e *HostedZoneNotFound
+		if errors.As(err, &e) {
+			log.Printf("Destination profile does not contain %s, creating it\n", domain)
+			zone, err = r.CreateZone(ctx, domain)
+			if err != nil {
+				return zone, err
+			}
+		} else {
+			return zone, err
+		}
+	}
+	return zone, nil
+}
+
+func (r *RouteCopy) GetResourceRecords(ctx context.Context, zoneId string) ([]rtypes.ResourceRecordSet, error) {
 	params := &route53.ListResourceRecordSetsInput{
-		HostedZoneId: aws.String(*zone.Id),
+		HostedZoneId: aws.String(zoneId),
 	}
 	paginator := NewListResourceRecordSetsPaginator(r.cli, params)
 
@@ -96,6 +138,22 @@ func (r *RouteCopy) GetResourceRecords(ctx context.Context, domain string) ([]rt
 	}
 
 	return records, nil
+}
+
+func (r *RouteCopy) GetNSRecords(ctx context.Context, zoneId string) (rtypes.ResourceRecordSet, error) {
+	records, err := r.GetResourceRecords(ctx, zoneId)
+	if err != nil {
+		return rtypes.ResourceRecordSet{}, err
+	}
+
+	for _, r := range records {
+		if r.Type != rtypes.RRTypeNs {
+			continue
+		}
+		return r, nil
+	}
+
+	return rtypes.ResourceRecordSet{}, fmt.Errorf("no NS records found")
 }
 
 func (r *RouteCopy) CreateChanges(domain string, recordSets []rtypes.ResourceRecordSet) []rtypes.Change {
@@ -137,23 +195,17 @@ func normalizeDomain(domain string) string {
 	}
 }
 
-func (r *RouteCopy) UpdateRecords(ctx context.Context, sourceProfile, domain string, changes []rtypes.Change) (*rtypes.ChangeInfo, error) {
-	var zone rtypes.HostedZone
-	var err error
-	zone, err = r.GetHostedZone(ctx, domain)
-	if err != nil {
-		var e *HostedZoneNotFound
-		if errors.As(err, &e) {
-			zone, err = r.CreateZone(ctx, domain)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
+func denormalizeDomain(domain string) string {
+	if strings.HasSuffix(domain, ".") {
+		return domain[:len(domain)-1]
+	} else {
+		return domain
 	}
+}
+
+func (r *RouteCopy) UpdateRecords(ctx context.Context, sourceProfile, zoneId string, changes []rtypes.Change) (*rtypes.ChangeInfo, error) {
 	params := &route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: zone.Id,
+		HostedZoneId: aws.String(zoneId),
 		ChangeBatch: &rtypes.ChangeBatch{
 			Changes: changes,
 			Comment: aws.String("Importing ALL records from " + sourceProfile),
@@ -164,4 +216,63 @@ func (r *RouteCopy) UpdateRecords(ctx context.Context, sourceProfile, domain str
 		return nil, err
 	}
 	return resp.ChangeInfo, nil
+}
+
+func (r *RouteCopy) UpdateNSRecords(ctx context.Context, domain, zoneId string) (bool, error) {
+	nsRecords, err := r.GetNSRecords(ctx, zoneId)
+	if err != nil {
+		return false, err
+	}
+	ddo, err := r.domains.GetDomainDetail(ctx, &route53domains.GetDomainDetailInput{
+		DomainName: aws.String(domain),
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if matchNSRecords(ddo.Nameservers, nsRecords) {
+		return false, nil
+	}
+
+	newNS := nameserversFromRecords(nsRecords)
+
+	udno, err := r.domains.UpdateDomainNameservers(ctx, &route53domains.UpdateDomainNameserversInput{
+		DomainName:  aws.String(domain),
+		Nameservers: newNS,
+	})
+
+	if err != nil {
+		return false, err
+	}
+	log.Printf("Updated NS records for %s: %s", domain, aws.ToString(udno.OperationId))
+	return true, nil
+}
+
+func matchNSRecords(ns []rdtypes.Nameserver, rs rtypes.ResourceRecordSet) bool {
+	for _, r := range rs.ResourceRecords {
+		recordName := denormalizeDomain(aws.ToString(r.Value))
+		if !findInList(ns, recordName) {
+			return false
+		}
+	}
+	return true
+}
+
+func findInList(ns []rdtypes.Nameserver, name string) bool {
+	for _, n := range ns {
+		if aws.ToString(n.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func nameserversFromRecords(rs rtypes.ResourceRecordSet) []rdtypes.Nameserver {
+	var ns []rdtypes.Nameserver
+	for _, r := range rs.ResourceRecords {
+		ns = append(ns, rdtypes.Nameserver{
+			Name: aws.String(denormalizeDomain(aws.ToString(r.Value))),
+		})
+	}
+	return ns
 }
