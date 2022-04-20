@@ -39,7 +39,7 @@ func main() {
 		os.Exit(0)
 	}
 	if version {
-		fmt.Println(cmd.Version)
+		fmt.Printf("route53copy\nversion %s (%s), built at: %s\n", cmd.Version, cmd.Commit, cmd.BuildDate)
 		os.Exit(0)
 	}
 
