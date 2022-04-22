@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/route53domains/types"
 	"github.com/pedrokiefer/route53copy/pkg/dns"
 	"github.com/spf13/cobra"
 )
@@ -48,12 +50,21 @@ func (a *App) Run(ctx context.Context) error {
 		log.Printf("Transferring domain %s...\n", domain)
 		t, err := srcManager.TransferDomain(ctx, domain, accountID)
 		if err != nil {
+			continue
+		}
+
+		err = srcManager.WaitOperation(ctx, types.OperationStatusInProgress, t.OperationID, 5*time.Minute)
+		if err != nil {
 			return err
 		}
+
+		log.Print("Waiting some more...")
+		time.Sleep(30 * time.Second)
+
 		log.Printf("Domain transfer initiated for %s: %s\n", domain, t.OperationID)
 		opID, err := dstManager.AcceptTransfer(ctx, domain, t.Password)
 		if err != nil {
-			log.Printf("failed to accept transfer for %s", domain)
+			log.Printf("failed to accept transfer for %s: %+v", domain, err)
 			copID, cerr := srcManager.CancelTranfer(ctx, domain)
 			if cerr != nil {
 				return fmt.Errorf("failed to cancel transfer for %s: %s", domain, cerr)
@@ -61,6 +72,12 @@ func (a *App) Run(ctx context.Context) error {
 			log.Printf("cancelled transfer for %s: %s", domain, copID)
 			return err
 		}
+
+		err = dstManager.WaitOperation(ctx, types.OperationStatusSuccessful, opID, 5*time.Minute)
+		if err != nil {
+			return err
+		}
+
 		log.Printf("Domain transfer accepted for %s: %s\n", domain, opID)
 	}
 
