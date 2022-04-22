@@ -53,20 +53,24 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		dstZoneID := aws.ToString(zone.Id)
 
-		changeInfo, err := dstService.UpdateRecords(ctx, a.SourceProfile, dstZoneID, changes)
-		if err != nil {
-			return err
-		}
-		log.Printf("%d records in '%s' were copied from %s to %s\n",
-			len(changes), a.Domain, a.SourceProfile, a.DestinationProfile)
-
-		if changeInfo.Status != rtypes.ChangeStatusInsync {
-			start := time.Now()
-			err = dstService.WaitForChange(ctx, aws.ToString(changeInfo.Id), 2*time.Minute)
+		if len(changes) > 0 {
+			changeInfo, err := dstService.UpdateRecords(ctx, a.SourceProfile, dstZoneID, changes)
 			if err != nil {
 				return err
 			}
-			log.Printf("%d records in '%s' are in sync after %s\n", len(changes), a.Domain, time.Since(start))
+			log.Printf("%d records in '%s' were copied from %s to %s\n",
+				len(changes), a.Domain, a.SourceProfile, a.DestinationProfile)
+
+			if changeInfo.Status != rtypes.ChangeStatusInsync {
+				start := time.Now()
+				err = dstService.WaitForChange(ctx, aws.ToString(changeInfo.Id), 2*time.Minute)
+				if err != nil {
+					return err
+				}
+				log.Printf("%d records in '%s' are in sync after %s\n", len(changes), a.Domain, time.Since(start))
+			}
+		} else {
+			log.Printf("No records to copy for '%s'\n", a.Domain)
 		}
 
 		if a.UpdateNS {

@@ -97,7 +97,9 @@ func (r *RouteCopy) CreateZone(ctx context.Context, domain string) (rtypes.Hoste
 }
 
 func (r *RouteCopy) WaitForChange(ctx context.Context, changeId string, maxWait time.Duration) error {
-	waiter := route53.NewResourceRecordSetsChangedWaiter(r.cli)
+	waiter := route53.NewResourceRecordSetsChangedWaiter(r.cli, func(rrscwo *route53.ResourceRecordSetsChangedWaiterOptions) {
+		rrscwo.MinDelay = 15 * time.Second
+	})
 	return waiter.Wait(ctx, &route53.GetChangeInput{
 		Id: aws.String(changeId),
 	}, maxWait)
