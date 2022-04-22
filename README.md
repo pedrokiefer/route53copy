@@ -10,52 +10,28 @@ should already exist in the destination account.
 The domain must already exist in both accounts and [AWS Named Profiles](http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html#cli-multiple-profiles)
 must be configured for both the source account and the destination account.
 
+It can also update the NS for a domain if you are using AWS as your registrar, and the domain is on the target account.
 
 ## Installation
 
-### Homebrew Installation on OS X
+Download the lastest version from [releases](https://github.com/pedrokiefer/route53copy/releases) page.
 
-```
-$ brew tap andersjanmyr/tap
-$ brew install route53
-```
-
-`route53copy` is a single binary. Install it by right-clicking and `Save as...`
-or with `curl`.
-
-### Links
-
-* [OS X](https://github.com/andersjanmyr/route53copy/releases/download/v1.1.1/route53copy-osx)
-* [Linux](https://github.com/andersjanmyr/route53copy/releases/download/v1.1.1/route53copy-linux)
-* [Windows](https://github.com/andersjanmyr/route53copy/releases/download/v1.1.1/route53copy.exe)
-
-### Curl
-
-```
-# OS X
-$ curl -L https://github.com/andersjanmyr/route53copy/releases/download/v1.1.1/route53copy-osx \
-  > /usr/local/bin/route53copy
-
-# Linux
-$ curl -L https://github.com/andersjanmyr/route53copy/releases/download/v1.1.1/route53copy-linux \
-  > /usr/local/bin/route53copy
-
-# Make executable
-$ chmod a+x /usr/local/bin/route53copy
-
-```
+Or build it yourself by cloning this repository.
 
 ## Usage
 
 ```
 $ route53copy --help
-Usage: route53copy [options] <source_profile> <dest_profile> <domain>
-  -dry
-        Don't make any changes
-  -help
-        Show help text
-  -version
-        Show version
+Route53Copy is a tool to copy records from one AWS account to another
+
+Usage:
+  route53copy <source_profile> <dest_profile> <domain> [flags]
+
+Flags:
+      --dry         Dry run
+  -h, --help        help for route53copy
+      --update-ns   Update nameserver records
+  -v, --version     version for route53copy
 ```
 
 ```
