@@ -3,18 +3,22 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - id: route53copy
+    env:
       - CGO_ENABLED=0
     main: ./cmd/route53copy
+    binary: route53copy
     goos:
       - linux
       - windows
       - darwin
     ldflags:
       - -s -w -X github.com/pedrokiefer/route53copy/cmd.Version={{.Version}} -X github.com/pedrokiefer/route53copy/cmd.Commit={{.Commit}} -X github.com/pedrokiefer/route53copy/cmd.BuildDate={{ .CommitDate }}
-  - env:
+  - id: route53domains
+    env:
       - CGO_ENABLED=0
     main: ./cmd/route53domains
+    binary: route53domains
     goos:
       - linux
       - windows
