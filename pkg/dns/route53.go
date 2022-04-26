@@ -146,6 +146,54 @@ func (r *RouteCopy) GetResourceRecords(ctx context.Context, zoneId string) ([]rt
 	return records, nil
 }
 
+func (r *RouteCopy) DeleteRecords(ctx context.Context, zoneId string, records []rtypes.ResourceRecordSet) (string, error) {
+	changes := []rtypes.Change{}
+	for _, record := range records {
+		if record.Type == rtypes.RRTypeNs || record.Type == rtypes.RRTypeSoa {
+			continue
+		}
+		changes = append(changes, rtypes.Change{
+			Action: rtypes.ChangeActionDelete,
+			ResourceRecordSet: &rtypes.ResourceRecordSet{
+				Name:                    record.Name,
+				Type:                    record.Type,
+				AliasTarget:             record.AliasTarget,
+				Failover:                record.Failover,
+				GeoLocation:             record.GeoLocation,
+				HealthCheckId:           record.HealthCheckId,
+				MultiValueAnswer:        record.MultiValueAnswer,
+				Region:                  record.Region,
+				ResourceRecords:         record.ResourceRecords,
+				SetIdentifier:           record.SetIdentifier,
+				TTL:                     record.TTL,
+				TrafficPolicyInstanceId: record.TrafficPolicyInstanceId,
+				Weight:                  record.Weight,
+			},
+		})
+	}
+	params := &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneId),
+		ChangeBatch: &rtypes.ChangeBatch{
+			Changes: changes,
+		},
+	}
+	ch, err := r.cli.ChangeResourceRecordSets(ctx, params)
+	if err != nil {
+		return "", err
+	}
+	return aws.ToString(ch.ChangeInfo.Id), nil
+}
+
+func (r *RouteCopy) DeleteHostedZone(ctx context.Context, zoneId string) (string, error) {
+	dhz, err := r.cli.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{
+		Id: aws.String(zoneId),
+	})
+	if err != nil {
+		return "", err
+	}
+	return aws.ToString(dhz.ChangeInfo.Id), nil
+}
+
 func (r *RouteCopy) GetNSRecords(ctx context.Context, zoneId string) (rtypes.ResourceRecordSet, error) {
 	records, err := r.GetResourceRecords(ctx, zoneId)
 	if err != nil {
@@ -236,7 +284,7 @@ func (r *RouteCopy) UpdateNSRecords(ctx context.Context, domain, zoneId string) 
 		return false, err
 	}
 
-	if matchNSRecords(ddo.Nameservers, nsRecords) {
+	if MatchNSRecords(ddo.Nameservers, nsRecords) {
 		return false, nil
 	}
 
@@ -254,7 +302,7 @@ func (r *RouteCopy) UpdateNSRecords(ctx context.Context, domain, zoneId string) 
 	return true, nil
 }
 
-func matchNSRecords(ns []rdtypes.Nameserver, rs rtypes.ResourceRecordSet) bool {
+func MatchNSRecords(ns []rdtypes.Nameserver, rs rtypes.ResourceRecordSet) bool {
 	for _, r := range rs.ResourceRecords {
 		recordName := denormalizeDomain(aws.ToString(r.Value))
 		if !findInList(ns, recordName) {

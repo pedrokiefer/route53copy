@@ -25,6 +25,17 @@ builds:
       - darwin
     ldflags:
       - -s -w -X github.com/pedrokiefer/route53copy/cmd.Version={{.Version}} -X github.com/pedrokiefer/route53copy/cmd.Commit={{.Commit}} -X github.com/pedrokiefer/route53copy/cmd.BuildDate={{ .CommitDate }}
+  - id: route53delete
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/route53delete
+    binary: route53delete
+    goos:
+      - linux
+      - windows
+      - darwin
+    ldflags:
+      - -s -w -X github.com/pedrokiefer/route53copy/cmd.Version={{.Version}} -X github.com/pedrokiefer/route53copy/cmd.Commit={{.Commit}} -X github.com/pedrokiefer/route53copy/cmd.BuildDate={{ .CommitDate }}
 
 archives:
   - replacements:
