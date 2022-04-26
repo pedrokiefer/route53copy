@@ -2,7 +2,6 @@ package dns
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"regexp"
 
@@ -44,7 +43,6 @@ func GetNameserversFor(domain string) ([]rdtypes.Nameserver, error) {
 			nsStr := ns.String()
 			server := nsre.FindStringSubmatch(nsStr)[1]
 			server = denormalizeDomain(server)
-			log.Printf("[DEBUG] Found nameserver: %s", server)
 			nss = append(nss, rdtypes.Nameserver{
 				Name: aws.String(server),
 			})

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rtypes "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	rdtypes "github.com/aws/aws-sdk-go-v2/service/route53domains/types"
 	"github.com/manifoldco/promptui"
 	"github.com/pedrokiefer/route53copy/pkg/dns"
 	"github.com/spf13/cobra"
@@ -49,6 +51,9 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	log.Printf("Dig returned NS servers: %s\n", nsToString(ns))
+	log.Printf("Route53 has NS servers: %s\n", nsRecordsToString(nsRecords))
 
 	if dns.MatchNSRecords(ns, nsRecords) && !a.Force {
 		log.Printf("Nameservers for %s match, not deleting zone\n", a.Domain)
@@ -132,4 +137,19 @@ func NewCommand() *cobra.Command {
 	f.BoolVar(&a.DryRun, "dry", false, "Dry run")
 	f.BoolVar(&a.Force, "force", false, "Force delete")
 	return c
+}
+
+func nsToString(ns []rdtypes.Nameserver) string {
+	str := []string{}
+	for _, n := range ns {
+		str = append(str, aws.ToString(n.Name))
+	}
+	return strings.Join(str, ",")
+}
+func nsRecordsToString(rs rtypes.ResourceRecordSet) string {
+	str := []string{}
+	for _, n := range rs.ResourceRecords {
+		str = append(str, aws.ToString(n.Value))
+	}
+	return strings.Join(str, ",")
 }
