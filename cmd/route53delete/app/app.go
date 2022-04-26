@@ -79,18 +79,23 @@ func (a *App) Run(ctx context.Context) error {
 		log.Printf("Aborting\n")
 		return nil
 	}
-	log.Printf("Deleting records...\n")
-	drchID, err := srcManager.DeleteRecords(ctx, srcZoneID, recordSets)
-	if err != nil {
-		return err
-	}
 
-	err = srcManager.WaitForChange(ctx, drchID, 2*time.Minute)
-	if err != nil {
-		return err
-	}
+	if len(recordSets) > 0 {
+		log.Printf("Deleting records...\n")
+		drchID, err := srcManager.DeleteRecords(ctx, srcZoneID, recordSets)
+		if err != nil {
+			return err
+		}
 
-	log.Printf("Deleted all records for domain %s\n", a.Domain)
+		err = srcManager.WaitForChange(ctx, drchID, 2*time.Minute)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Deleted all records for domain %s\n", a.Domain)
+	} else {
+		log.Printf("No records to delete for domain %s\n", a.Domain)
+	}
 	log.Printf("Removing zoneId %s...\n", srcZoneID)
 
 	chID, err := srcManager.DeleteHostedZone(ctx, srcZoneID)
