@@ -55,6 +55,10 @@ func (r *RouteCopy) GetHostedZone(ctx context.Context, domain string) (rtypes.Ho
 		return rtypes.HostedZone{}, err
 	}
 
+	if len(resp.HostedZones) == 0 {
+		return rtypes.HostedZone{}, &HostedZoneNotFound{Zone: domain}
+	}
+
 	zone := resp.HostedZones[0]
 	if *zone.Name != normalizeDomain(domain) {
 		return rtypes.HostedZone{}, &HostedZoneNotFound{Zone: domain}
