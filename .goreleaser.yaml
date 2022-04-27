@@ -36,6 +36,17 @@ builds:
       - darwin
     ldflags:
       - -s -w -X github.com/pedrokiefer/route53copy/cmd.Version={{.Version}} -X github.com/pedrokiefer/route53copy/cmd.Commit={{.Commit}} -X github.com/pedrokiefer/route53copy/cmd.BuildDate={{ .CommitDate }}
+  - id: r53tool
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/r53tool
+    binary: r53tool
+    goos:
+      - linux
+      - windows
+      - darwin
+    ldflags:
+      - -s -w -X github.com/pedrokiefer/route53copy/cmd.Version={{.Version}} -X github.com/pedrokiefer/route53copy/cmd.Commit={{.Commit}} -X github.com/pedrokiefer/route53copy/cmd.BuildDate={{ .CommitDate }}
 
 archives:
   - replacements:
